@@ -1,12 +1,12 @@
-# SDK Error Handling
+# SGK Error Handling
 
 The ZK Payroll SDK normalizes all underlying network, contract, wallet, and proof generation failures into a unified, stable public error hierarchy. This allows integrators to build resilient user experiences and implement predictable recovery patterns.
 
 ## Error Hierarchy
 
-All SDK errors inherit from the base `ZkPayrollError` class.
+All SDK errors inherit from the base `ZKPayrollError` class.
 
-- `ZkPayrollError` (Base — includes `cause?: unknown` for underlying error preservation)
+- `ZKPayrollError` (Base — includes `cause?: unknown` for underlying error preservation)
   - `WalletError` - Wallet interaction failures
     - `WalletRejectionError` - User explicitly declined a connection or signing request in their wallet
   - `ContractExecutionError` - On-chain simulation failures, reverts, insufficient fees, or rejected submissions.
@@ -16,16 +16,17 @@ All SDK errors inherit from the base `ZkPayrollError` class.
   - `ProofGenerationError` - Failures related to circuit artifact downloading, caching, or witness calculation.
   - `SerializationError` - Failures during importing or exporting of payroll drafts.
   - `ValidationError` - Client-side validation errors.
+  - `PayrollStateConsistencyError` - Payroll state transitions that violate the expected lifecycle or contain inconsistent data.
 
-*(Note: `PayrollError` is deprecated and acts as a backward-compatibility alias for `ZkPayrollError`)*
+*(Note: `PayrollError` is deprecated and acts as a backward-compatibility alias for `ZKPayrollError`)*
 
 ## Stable Error Code Reference
 
-Every `ZkPayrollError` exposes:
+Every `ZKPayrollError` exposes:
 1. `message`: A human-readable description of the failure.
 2. `code`: A stable string code classifying the failure (e.g., `RPC_TIMEOUT`, `WALLET_SIGNING_REJECTED`).
 3. `context`: A key-value record containing metadata relevant to the failure (e.g., `requestId`, transaction hash, or failing parameter).
-4. `cause`: The underlying raw error, `AxiosError`, or wallet exception that caused the SDK error.
+4. `cause`: The underlying raw error, `AxiosError`, or wallet exception that caused the SGK error.
 
 ### Error Code Registry
 
@@ -69,17 +70,20 @@ if (isRetryableErrorCode(error.code)) {
 | `SERIALIZATION_FAILED` | serialization | Binary encoding or decoding failed. | No | Failed to serialize or deserialize data. The data may be corrupted. |
 | `ARTIFACT_NOT_FOUND` | artifact | ZK circuit artifact not found at configured path. | Yes | A required proving artifact was not found. Please check your artifact URLs and try again. |
 | `ARTIFACT_ACCESS_DENIED` | artifact | Access to artifact storage was denied. | No | Access to proving artifacts was denied. Please check your permissions and try again. |
-| `ARTIFACT_CORRUPT` | artifact | Downloaded artifact has invalid checksum. | Yes | A proving artifact appears to be corrupt. The SDK will attempt to re-download it. |
+| `ARTIFACT_CORRUPT` | artifact | Downloaded artifact has invalid checksum. | Yes | A proving artifact appears to be corrupt. The SGK will attempt to re-download it. |
 | `ARTIFACT_FETCH_FAILED` | artifact | Artifact download failed due to network/server error. | Yes | Failed to download a proving artifact. Please check your network connection and try again. |
-| `ARTIFACT_HASH_MISMATCH` | artifact | Artifact hash does not match expected value. | Yes | The downloaded proving artifact does not match its expected checksum. The SDK will retry. |
+| `ARTIFACT_HASH_MISMATCH` | artifact | Artifact hash does not match expected value. | Yes | The downloaded proving artifact does not match its expected checksum. The SGK will retry. |
 | `BATCH_VALIDATION_FAILED` | batch | Batch payload validation failed. | No | The batch payload contains invalid entries. Please review the validation errors and try again. |
 | `DRAFT_VALIDATION_FAILED` | draft | Draft validation failed. | No | The payroll draft contains invalid data. Please review the errors and try again. |
 | `RECONCILIATION_DIFF_FAILED` | reconciliation | Reconciliation diff generation failed. | No | Failed to generate reconciliation report. The input data may be inconsistent. |
 | `RECONCILIATION_UNEXPECTED_ACTIVITY` | reconciliation | On-chain activity with no matching expected outcome. | No | Unexpected on-chain activity was detected. Review the reconciliation report for details. |
+| `PAYROLL_STATE_CONSISTENCY_VIOLATION` | payroll | Payroll state transition violates the expected lifecycle. | No | The payroll is in an invalid state for this operation. Refresh the payroll and try again. |
+| `PAYROLL_STATE_STALE_DATA` | payroll | Payroll state data is out of date or inconsistent. | Yes | The payroll data is out of date. Refresh the payroll and try again. |
+| `PAYROLL_STATE_INVALID_TRANSITION` | payroll | Requested payroll state transition is not allowed. | No | This payroll operation is not allowed in the current state. Please review the payroll status. |
 
 ### Retry Guidance
 
-- **Retryable errors** are typically transient (network timeouts, fee estimation, wallet user declines). The SDK's `withRetry` utility retries these automatically with exponential backoff.
+- **Retryable errors** are typically transient (network timeouts, fee estimation, wallet user declines). The SGK's `withRetry` utility retries these automatically with exponential backoff.
 - **Non-retryable errors** indicate invalid inputs, configuration problems, or contract logic failures. These require user or developer intervention before retrying.
 
 ## User-Friendly UI Mapping
@@ -192,28 +196,57 @@ try {
   if (error instanceof SerializationError) {
     if (error.code === "CHECKSUM_MISMATCH") {
       // Recovery: Do not trust the payload. Abort the import.
-      alert("The draft file is corrupted or has been modified externally.");
+      alert("The draft file is corrupted or tampered with. Import aborted.");
     } else {
-      // Recovery: Tell the user the file format is invalid.
-      alert(`Cannot load draft: ${error.message}`);
+      console.error("Draft import failed:", error.message);
     }
   }
 }
 ```
 
-### 5. Client-Side Validation (`ValidationError`)
+### 5. Handling Payroll State Consistency Errors (`PayrollStateConsistencyError`)
 
-Thrown internally when invalid arguments are provided to the SDK methods before hitting the network or the wallet.
+The SDK guards payroll state transitions and data integrity. When an operation would move a payroll into an invalid state, or when the local state is out of date with the chain, the SDK throws a `PayrollStateConsistencyError`.
 
 ```typescript
-import { ValidationError } from "@zk-payroll/sdk";
+import { PayrollStateConsistencyError, PayrollStateConsistencyErrorCode } from "@zk-payroll/sdk";
 
 try {
-  await sdk.processPayment("invalid_address", -10n);
+  await sdk.approvePayroll(payrollId);
 } catch (error) {
-  if (error instanceof ValidationError) {
-    // Recovery: Highlight the specific form field in the UI.
-    form.setError(error.field, error.message);
+  if (error instanceof PayrollStateConsistencyError) {
+    switch (error.code) {
+      case PayrollStateConsistencyErrorCode.STATE_VIOLATION:
+        // Recovery: The payroll is not in a state that allows approval.
+        // Refresh the payroll and re-evaluate the available actions.
+        console.error("Payroll cannot be approved in its current state:", error.context.currentState);
+        break;
+      case PayrollStateConsistencyErrorCode.STALE_DATA:
+        // Recovery: Re-fetch the latest payroll state before retrying.
+        console.error("Payroll state is stale. Refreshing...");
+        await sdk.refreshPayroll(payrollId);
+        break;
+      case PayrollStateConsistencyErrorCode.INVALID_TRANSITION:
+        // Recovery: The requested transition is not allowed from the current state.
+        console.error("Invalid payroll transition:", error.message);
+        break;
+    }
   }
 }
 ```
+
+### Payroll State Lifecycle
+
+The SDK enforces the following state lifecycle for a payroll:
+
+```text
+draft --> pending_approval --> approved --> executing --> completed
+                                                     \
+                                                      --> failed
+                                                      \
+                                                       --> cancelled
+```
+
+Each transition is validated by the SDK. Attempting an invalid transition (for example, executing a payroll that has not been approved) throws a `PayrollStateConsistencyError` with code `PAYROLL_STATE_INVALID_TRANSITION`.
+
+The consistency guard also detects stale or inconsistent local state by comparing the local payroll snapshot against the on-chain record. When a divergence is detected, a `PayrollStateConsistencyError` with code `PAYROLL_STATE_STALE_DATA` is thrown, signalling that the caller should refresh before retrying.
