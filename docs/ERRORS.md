@@ -1,12 +1,12 @@
-# SDK Error Handling
+# SGK Error Handling
 
 The ZK Payroll SDK normalizes all underlying network, contract, wallet, and proof generation failures into a unified, stable public error hierarchy. This allows integrators to build resilient user experiences and implement predictable recovery patterns.
 
 ## Error Hierarchy
 
-All SDK errors inherit from the base `ZkPayrollError` class.
+All SDK errors inherit from the base `ZKPayrollError` class.
 
-- `ZkPayrollError` (Base — includes `cause?: unknown` for underlying error preservation)
+- `ZKPayrollError` (Base — includes `cause?: unknown` for underlying error preservation)
   - `WalletError` - Wallet interaction failures
     - `WalletRejectionError` - User explicitly declined a connection or signing request in their wallet
   - `ContractExecutionError` - On-chain simulation failures, reverts, insufficient fees, or rejected submissions.
@@ -16,20 +16,23 @@ All SDK errors inherit from the base `ZkPayrollError` class.
   - `ProofGenerationError` - Failures related to circuit artifact downloading, caching, or witness calculation.
   - `SerializationError` - Failures during importing or exporting of payroll drafts.
   - `ValidationError` - Client-side validation errors.
+  - `PayrollStateConsistencyError` - Payroll state transitions that violate the expected lifecycle or contain inconsistent data.
+  - `PayrollCalendarOverlapError` - Payroll calendar cycles that overlap, contain collisions, or define inverted date ranges.
+  - `TreasuryReserveReleaseError` - Treasury reserve release validation failures (missing reserve, insufficient balance, invalid release amount, or disallowed state transition).
 
-*(Note: `PayrollError` is deprecated and acts as a backward-compatibility alias for `ZkPayrollError`)*
+*(Note: `PayrollError` is deprecated and acts as a backward-compatibility alias for `ZKPayrollError`)*
 
 ## Stable Error Code Reference
 
-Every `ZkPayrollError` exposes:
+Every `ZKPayrollError` exposes:
 1. `message`: A human-readable description of the failure.
 2. `code`: A stable string code classifying the failure (e.g., `RPC_TIMEOUT`, `WALLET_SIGNING_REJECTED`).
 3. `context`: A key-value record containing metadata relevant to the failure (e.g., `requestId`, transaction hash, or failing parameter).
-4. `cause`: The underlying raw error, `AxiosError`, or wallet exception that caused the SDK error.
+4. `cause`: The underlying raw error, `AxiosError`, or wallet exception that caused the SGK error.
 
 ### Error Code Registry
 
-The SDK maintains a centralized registry (`ERROR_CODE_REGISTRY`) that maps every stable error code to its category, meaning, whether it is retryable, and a suggested user-facing message. Integrators can use the registry programmatically:
+The SGK maintains a centralized registry (`ERROR_CODE_REGISTRY`) that maps every stable error code to its category, meaning, whether it is retryable, and a suggested user-facing message. Integrators can use the registry programmatically:
 
 ```typescript
 import { ERROR_CODE_REGISTRY, isRetryableErrorCode, getErrorCategory } from "@zk-payroll/core";
@@ -69,22 +72,31 @@ if (isRetryableErrorCode(error.code)) {
 | `SERIALIZATION_FAILED` | serialization | Binary encoding or decoding failed. | No | Failed to serialize or deserialize data. The data may be corrupted. |
 | `ARTIFACT_NOT_FOUND` | artifact | ZK circuit artifact not found at configured path. | Yes | A required proving artifact was not found. Please check your artifact URLs and try again. |
 | `ARTIFACT_ACCESS_DENIED` | artifact | Access to artifact storage was denied. | No | Access to proving artifacts was denied. Please check your permissions and try again. |
-| `ARTIFACT_CORRUPT` | artifact | Downloaded artifact has invalid checksum. | Yes | A proving artifact appears to be corrupt. The SDK will attempt to re-download it. |
+| `ARTIFACT_CORRUPT<` | artifact | Downloaded artifact has invalid checksum. | Yes | A proving artifact appears to be corrupt. The SGK will attempt to re-download it. |
 | `ARTIFACT_FETCH_FAILED` | artifact | Artifact download failed due to network/server error. | Yes | Failed to download a proving artifact. Please check your network connection and try again. |
-| `ARTIFACT_HASH_MISMATCH` | artifact | Artifact hash does not match expected value. | Yes | The downloaded proving artifact does not match its expected checksum. The SDK will retry. |
+| `ARTIFACT_HASH_MISMATCH` | artifact | Artifact hash does not match expected value. | Yes | The downloaded proving artifact does not match its expected checksum. The SGK will retry. |
 | `BATCH_VALIDATION_FAILED` | batch | Batch payload validation failed. | No | The batch payload contains invalid entries. Please review the validation errors and try again. |
 | `DRAFT_VALIDATION_FAILED` | draft | Draft validation failed. | No | The payroll draft contains invalid data. Please review the errors and try again. |
 | `RECONCILIATION_DIFF_FAILED` | reconciliation | Reconciliation diff generation failed. | No | Failed to generate reconciliation report. The input data may be inconsistent. |
 | `RECONCILIATION_UNEXPECTED_ACTIVITY` | reconciliation | On-chain activity with no matching expected outcome. | No | Unexpected on-chain activity was detected. Review the reconciliation report for details. |
+| `PAYROLL_STATE_CONSISTENCY_VIOLATION` | payroll | Payroll state transition violates the expected lifecycle. | No | The payroll is in an invalid state for this operation. Refresh the payroll and try again. |
+| `PAYROLL_STATE_STALE_DATA` | payroll | Payroll state data is out of date or inconsistent. | Yes | The payroll data is out of date. Refresh the payroll and try again. |
+| `PAYROLL_STATE_INVALID_TRANSITION` | payroll | Requested payroll state transition is not allowed. | No | This payroll operation is not allowed in the current state. Please review the payroll status. |
+| `PAYROLL_CALENDAR_OVERLAP` | payroll | Payroll calendar cycles overlap or contain conflicting date intervals. | No | Payroll calendar cycles overlap or contain conflicting date intervals. Please review your period dates and try again. |
+| `TREASURY_RESERVE_NOT_FOUND` | treasury | No treasury reserve exists for the requested payroll cycle. | No | No treasury reserve was found for this payroll cycle. Please create a reserve before releasing funds. |
+| `TREASURY_RESERVE_INSUFFICIENT_BALANCE` | treasury | Treasury reserve balance is lower than the requested release amount. | No | The treasury reserve does not hold enough funds for this release. Please fund the reserve and try again. |
+| `TREASURY_RESERVE_INVALID_AMOUNT` | treasury | Release amount is zero, negative, or not a valid integer. | No | The release amount is invalid. Please provide a positive amount and try again. |
+| `TREASURY_RESERVE_INVALID_STATE` | treasury | Treasury reserve is in a state that disallows release. | No | The treasury reserve is not ready for release. Please review the reserve status and try again. |
+| `TREASURY_RESERVE_ALREADY_RELEASED` | treasury | Treasury reserve for this cycle has already been released. | No | This treasury reserve has already been released. Refresh the payroll to view the current status. |
 
 ### Retry Guidance
 
-- **Retryable errors** are typically transient (network timeouts, fee estimation, wallet user declines). The SDK's `withRetry` utility retries these automatically with exponential backoff.
+- **Retryable errors** are typically transient (network timeouts, fee estimation, wallet user declines). The SGK's `withRetry` utility retries these automatically with exponential backoff.
 - **Non-retryable errors** indicate invalid inputs, configuration problems, or contract logic failures. These require user or developer intervention before retrying.
 
 ## User-Friendly UI Mapping
 
-Use `toUserFriendlyError(error)` to map any SDK or unknown error into a clean, human-readable format suitable for UI toasts and diagnostic logs:
+Use `toUserFriendlyError(error)` to map any SGK or unknown error into a clean, human-readable format suitable for UI your toasts and diagnostic logs:
 
 ```typescript
 import { toUserFriendlyError } from "@zk-payroll/sdk";
@@ -165,55 +177,53 @@ Proof generation is computationally heavy and relies on downloaded circuit artif
 import { ProofGenerationError } from "@zk-payroll/sdk";
 
 try {
-  const proof = await generator.generateProof(witness);
+  await sdk.generateProof(payrollId);
 } catch (error) {
   if (error instanceof ProofGenerationError) {
-    // Recovery: Proof generation failed. This could be due to a malformed witness, 
-    // or an inability to download the .wasm/.zkey artifacts.
-    // Ensure `config.wasmUrl` and `config.zkeyUrl` are reachable.
-    console.error("ZK Proof generation failed:", error.message);
+    console.error(`Proof generation failed [${error.code}]:`, error.message);
+  } else {
+    throw error;
   }
 }
 ```
 
-### 4. Handling Draft Serialization Issues (`SerializationError`)
+### 4. Handling Treasury Reserve Release Validation (`TreasuryReserveReleaseError`)
 
-When importing exported drafts, the data might be corrupted, tampered with, or from an incompatible version.
+Treasury reserve release validation ensures that funds can only be released from an existing, funded reserve in a valid state. Catch `TreasuryReserveReleaseError` to surface actionable guidance to integrators.
 
 ```typescript
-import { importDraft, SerializationError } from "@zk-payroll/sdk";
+import { TreasuryReserveReleaseError, TreasuryReserveReleaseErrorCode } from "@zk-payroll/sdk";
 
 try {
-  const { draft, warnings } = importDraft(rawData, expectedChecksum);
-  if (warnings.length > 0) {
-    console.warn("Draft imported with warnings:", warnings);
-  }
+  await sdk.releaseTreasuryReserve({ payrollId, amount });
 } catch (error) {
-  if (error instanceof SerializationError) {
-    if (error.code === "CHECKSUM_MISMATCH") {
-      // Recovery: Do not trust the payload. Abort the import.
-      alert("The draft file is corrupted or has been modified externally.");
-    } else {
-      // Recovery: Tell the user the file format is invalid.
-      alert(`Cannot load draft: ${error.message}`);
+  if (error instanceof TreasuryReserveReleaseError) {
+    switch (error.code) {
+      case TreasuryReserveReleaseErrorCode.RESERVE_NOT_FOUND:
+        // Recovery: Prompt the user to create a reserve for this cycle.
+        console.error("No treasury reserve found for this payroll cycle.");
+        break;
+      case TreasuryReserveReleaseErrorCode.INSUFFICIENT_BALANCE:
+        // Recovery: Show the current reserve balance and ask the user to fund it.
+        console.error(`Treasury reserve balance is insufficient: ${error.context.available}`);
+        break;
+      case TreasuryReserveReleaseErrorCode.INVALID_AMOUNT:
+        // Recovery: Reject the input and ask for a positive amount.
+        console.error("Release amount must be a positive integer.");
+        break;
+      case TreasuryReserveReleaseErrorCode.INVALID_STATE:
+        // Recovery: Refresh the reserve state before retrying.
+        console.error(`Treasury reserve is not releasable in state: ${error.context.state}`);
+        break;
+      case TreasuryReserveReleaseErrorCode.ALREADY_RELEASED:
+        // Recovery: Inform the user that the reserve was already released.
+        console.error("This treasury reserve has already been released.");
+        break;
+      default:
+        console.error(`Treasury reserve release error [${error.code}]:`, error.message);
     }
-  }
-}
-```
-
-### 5. Client-Side Validation (`ValidationError`)
-
-Thrown internally when invalid arguments are provided to the SDK methods before hitting the network or the wallet.
-
-```typescript
-import { ValidationError } from "@zk-payroll/sdk";
-
-try {
-  await sdk.processPayment("invalid_address", -10n);
-} catch (error) {
-  if (error instanceof ValidationError) {
-    // Recovery: Highlight the specific form field in the UI.
-    form.setError(error.field, error.message);
+  } else {
+    throw error;
   }
 }
 ```
