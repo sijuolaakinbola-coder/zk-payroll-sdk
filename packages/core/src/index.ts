@@ -18,6 +18,7 @@ export { PayrollError, PayrollServiceErrorCode, handleApiError } from "./errors"
 
 // ── Adapters Layer ──────────────────────────────────────────────────────────
 export { PayrollService } from "./payroll";
+export type { PayrollServiceOptions } from "./payroll";
 export { PayrollContract } from "./contract";
 export { ZKProofGenerator } from "./crypto/proofs";
 export { SnarkjsProofGenerator } from "./crypto/SnarkjsProofGenerator";
@@ -81,6 +82,7 @@ export * from "./cache";
 export * from "./amendments";
 export * from "./types";
 export * from "./progress";
+export * from "./roles";
 export {
   IdempotencyRegistry,
   createPaymentIdempotencyKey,
@@ -141,6 +143,9 @@ export * from "./proofs/types";
 export * from "./proofs/verifierAdapter";
 export { ProofVerificationClient, verifyProofWithAdapter } from "./client";
 
+// ── Proof Artifact Lifecycle ────────────────────────────────────────────────
+export * from "./artifacts";
+
 // ── Typed Contract Clients ───────────────────────────────────────────────────
 export * from "./clients";
 
@@ -150,6 +155,28 @@ export * from "./employer-readiness";
 
 // ── Proof Readiness Checker ─────────────────────────────────────────────────
 export * from "./proof-readiness";
+
+// ── Funding Source Readiness Check ──────────────────────────────────────────
+export * from "./funding";
+
+// ── Audit Grant Scope Reader ────────────────────────────────────────────────
+export type { ViewKeyScope } from "./audit/viewKeyHelpers";
+export {
+  AUDIT_GRANT_SCOPES,
+  readEffectiveAuditGrantScope,
+  resolveAuditGrantState,
+  selectWidestAuditScope,
+  auditScopeSatisfies,
+} from "./audit/grantScope";
+export type {
+  AuditGrantRecord,
+  AuditGrantScopeReport,
+  AuditGrantScopeErrorCode,
+  AuditGrantState,
+  AuditGrantLifecycleState,
+  EffectiveAuditGrant,
+  ResolvedAuditGrant,
+} from "./audit/grantScope";
 
 // ── Transaction Simulation ──────────────────────────────────────────────────
 export * from "./simulation";
@@ -204,3 +231,12 @@ export * from "./compliance";
 
 // ── Privacy & Safe Credential Handling ─────────────────────────────────────
 export * from "./privacy";
+
+// ── Payout Schedules & Collision Detection ──────────────────────────────────
+export * from "./schedules";
+
+// ── Salary Policy Change Impact Analysis ────────────────────────────────────
+// The module lives in `payroll/`; the root barrel points at the real path
+// (it previously referenced a non-existent `./salary-policy`).
+export * from "./payroll/salaryPolicyImpact";
+

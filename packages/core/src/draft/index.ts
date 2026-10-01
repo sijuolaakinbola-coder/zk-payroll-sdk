@@ -32,3 +32,4 @@ export {
   computeDraftChecksumAsync,
   verifyDraftChecksum,
 } from "./draftChecksum";
+export * from "./draftLockInspection";

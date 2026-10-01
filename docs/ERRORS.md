@@ -16,8 +16,10 @@ All SDK errors inherit from the base `ZKPayrollError` class.
   - `ProofGenerationError` - Failures related to circuit artifact downloading, caching, or witness calculation.
   - `SerializationError` - Failures during importing or exporting of payroll drafts.
   - `ValidationError` - Client-side validation errors.
+- `PayoutScheduleCollisionError` - Payout schedule collisions, minimum interval violations, or duplicate schedule identifiers.
   - `PayrollStateConsistencyError` - Payroll state transitions that violate the expected lifecycle or contain inconsistent data.
   - `PayrollCalendarOverlapError` - Payroll calendar cycles that overlap, contain collisions, or define inverted date ranges.
+  - `PaymentInstructionDuplicateError` - Payment instructions that duplicate an existing instruction in the same payroll batch.
   - `TreasuryReserveReleaseError` - Treasury reserve release validation failures (missing reserve, insufficient balance, invalid release amount, or disallowed state transition).
 
 *(Note: `PayrollError` is deprecated and acts as a backward-compatibility alias for `ZKPayrollError`)*
@@ -52,6 +54,8 @@ if (isRetryableErrorCode(error.code)) {
 | Code | Category | Meaning | Retryable | Suggested User Message |
 |---|---|---|---|---|
 | `VALIDATION_ERROR` | validation | Input validation failed. | No | The provided parameters failed validation. Please review your inputs and try again. |
+| `PAYOUT_SCHEDULE_COLLISION` | validation | Payout schedule collision or interval violation detected. | No | One or more scheduled payouts collide. Review conflicting execution times and intervals. |
+| `PAYMENT_INSTRUCTION_DUPLICATE` | validation | Payment instruction duplicates an existing instruction in the same payroll batch. | No | A payment instruction duplicates an existing instruction. Review the duplicated instruction and try again. |
 | `WALLET_NOT_INSTALLED` | wallet | Wallet extension is not installed. | No | The wallet extension is not installed. Please install it and try again. |
 | `WALLET_NOT_CONNECTED` | wallet | Wallet is installed but not connected to the dApp. | Yes | The wallet is not connected. Please connect your wallet and try again. |
 | `WALLET_CONNECTION_REJECTED` | wallet | User explicitly rejected the connection request. | Yes | The wallet connection request was rejected. Please approve the connection in your wallet and try again. |
@@ -72,7 +76,7 @@ if (isRetryableErrorCode(error.code)) {
 | `SERIALIZATION_FAILED` | serialization | Binary encoding or decoding failed. | No | Failed to serialize or deserialize data. The data may be corrupted. |
 | `ARTIFACT_NOT_FOUND` | artifact | ZK circuit artifact not found at configured path. | Yes | A required proving artifact was not found. Please check your artifact URLs and try again. |
 | `ARTIFACT_ACCESS_DENIED` | artifact | Access to artifact storage was denied. | No | Access to proving artifacts was denied. Please check your permissions and try again. |
-| `ARTIFACT_CORRUPT<` | artifact | Downloaded artifact has invalid checksum. | Yes | A proving artifact appears to be corrupt. The SGK will attempt to re-download it. |
+| `ARTIFACT_CORRUPT` | artifact | Downloaded artifact has invalid checksum. | Yes | A proving artifact appears to be corrupt. The SGK will attempt to re-download it. |
 | `ARTIFACT_FETCH_FAILED` | artifact | Artifact download failed due to network/server error. | Yes | Failed to download a proving artifact. Please check your network connection and try again. |
 | `ARTIFACT_HASH_MISMATCH` | artifact | Artifact hash does not match expected value. | Yes | The downloaded proving artifact does not match its expected checksum. The SGK will retry. |
 | `BATCH_VALIDATION_FAILED` | batch | Batch payload validation failed. | No | The batch payload contains invalid entries. Please review the validation errors and try again. |
@@ -96,7 +100,7 @@ if (isRetryableErrorCode(error.code)) {
 
 ## User-Friendly UI Mapping
 
-Use `toUserFriendlyError(error)` to map any SGK or unknown error into a clean, human-readable format suitable for UI your toasts and diagnostic logs:
+Use `toUserFriendlyError(error)` to map any SGK or unknown error into a clean, human-readable format suitable for UI toasts and diagnostic logs:
 
 ```typescript
 import { toUserFriendlyError } from "@zk-payroll/sdk";
@@ -120,7 +124,7 @@ Contract errors are mapped intelligently from the Soroban RPC responses. You sho
 import { ContractExecutionError, ContractErrorCode } from "@zk-payroll/sdk";
 
 try {
-  await sdk.processPayment("G...", 100n);
+  await sdk.processPayment("G...", 100n");
 } catch (error) {
   if (error instanceof ContractExecutionError) {
     switch (error.code) {
@@ -161,69 +165,6 @@ try {
       showToast("Transaction signing was canceled by the user.");
     } else if (error.code === WalletErrorCode.NETWORK_MISMATCH) {
       // Recovery: Ask the user to switch networks in their wallet extension.
-      showWarning("Please switch your wallet to the Testnet network.");
-    } else {
-      console.error(`Wallet Error [${error.code}]:`, error.message);
-    }
-  }
-}
-```
-
 ### 3. Handling Zero-Knowledge Proof Failures (`ProofGenerationError`)
 
 Proof generation is computationally heavy and relies on downloaded circuit artifacts.
-
-```typescript
-import { ProofGenerationError } from "@zk-payroll/sdk";
-
-try {
-  await sdk.generateProof(payrollId);
-} catch (error) {
-  if (error instanceof ProofGenerationError) {
-    console.error(`Proof generation failed [${error.code}]:`, error.message);
-  } else {
-    throw error;
-  }
-}
-```
-
-### 4. Handling Treasury Reserve Release Validation (`TreasuryReserveReleaseError`)
-
-Treasury reserve release validation ensures that funds can only be released from an existing, funded reserve in a valid state. Catch `TreasuryReserveReleaseError` to surface actionable guidance to integrators.
-
-```typescript
-import { TreasuryReserveReleaseError, TreasuryReserveReleaseErrorCode } from "@zk-payroll/sdk";
-
-try {
-  await sdk.releaseTreasuryReserve({ payrollId, amount });
-} catch (error) {
-  if (error instanceof TreasuryReserveReleaseError) {
-    switch (error.code) {
-      case TreasuryReserveReleaseErrorCode.RESERVE_NOT_FOUND:
-        // Recovery: Prompt the user to create a reserve for this cycle.
-        console.error("No treasury reserve found for this payroll cycle.");
-        break;
-      case TreasuryReserveReleaseErrorCode.INSUFFICIENT_BALANCE:
-        // Recovery: Show the current reserve balance and ask the user to fund it.
-        console.error(`Treasury reserve balance is insufficient: ${error.context.available}`);
-        break;
-      case TreasuryReserveReleaseErrorCode.INVALID_AMOUNT:
-        // Recovery: Reject the input and ask for a positive amount.
-        console.error("Release amount must be a positive integer.");
-        break;
-      case TreasuryReserveReleaseErrorCode.INVALID_STATE:
-        // Recovery: Refresh the reserve state before retrying.
-        console.error(`Treasury reserve is not releasable in state: ${error.context.state}`);
-        break;
-      case TreasuryReserveReleaseErrorCode.ALREADY_RELEASED:
-        // Recovery: Inform the user that the reserve was already released.
-        console.error("This treasury reserve has already been released.");
-        break;
-      default:
-        console.error(`Treasury reserve release error [${error.code}]:`, error.message);
-    }
-  } else {
-    throw error;
-  }
-}
-```

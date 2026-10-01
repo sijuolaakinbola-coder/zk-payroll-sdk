@@ -22,10 +22,7 @@ export interface PaymentInstructionEntry {
 
 /** Payment instruction expiry violation codes. */
 export type PaymentInstructionExpiryViolationCode =
-  | "INSTRUCTION_EXPIRED"
-  | "INVALID_EXPIRY_TIMESTAMP"
-  | "NO_EXPIRY_SET"
-  | "EXPIRY_IN_PAST";
+  "INSTRUCTION_EXPIRED" | "INVALID_EXPIRY_TIMESTAMP" | "NO_EXPIRY_SET" | "EXPIRY_IN_PAST";
 
 /** Structured expiry violation descriptor. */
 export interface PaymentInstructionExpiryViolation {
@@ -76,9 +73,10 @@ export function validatePaymentInstructionExpiry(
   } = options;
 
   const instrDisplay = entry.instructionId || "unknown";
-  const instrRedacted = shouldRedactId
-    ? redactInstrId(entry.instructionId)
-    : instrDisplay;
+  // `redactedMessage` / `redactedInstructionId` are always masked so they are
+  // safe to forward to logs and UIs. `message` follows `redactInstructionId`.
+  const instrRedacted = redactInstrId(entry.instructionId);
+  const instrMessage = shouldRedactId ? instrRedacted : instrDisplay;
 
   // Invalid expiry timestamp
   if (!Number.isFinite(entry.expiryTimestamp)) {
@@ -88,7 +86,7 @@ export function validatePaymentInstructionExpiry(
         code: "INVALID_EXPIRY_TIMESTAMP",
         instructionId: entry.instructionId,
         redactedInstructionId: instrRedacted,
-        message: `Invalid expiry timestamp for instruction ${instrDisplay}.`,
+        message: `Invalid expiry timestamp for instruction ${instrMessage}.`,
         redactedMessage: `Invalid expiry timestamp for instruction ${instrRedacted}.`,
       },
     };
@@ -102,7 +100,7 @@ export function validatePaymentInstructionExpiry(
         code: "EXPIRY_IN_PAST",
         instructionId: entry.instructionId,
         redactedInstructionId: instrRedacted,
-        message: `Expiry timestamp is in the past for instruction ${instrDisplay}.`,
+        message: `Expiry timestamp is in the past for instruction ${instrMessage}.`,
         redactedMessage: `Expiry timestamp is in the past for instruction ${instrRedacted}.`,
       },
     };
@@ -118,7 +116,7 @@ export function validatePaymentInstructionExpiry(
         code: "INSTRUCTION_EXPIRED",
         instructionId: entry.instructionId,
         redactedInstructionId: instrRedacted,
-        message: `Payment instruction ${instrDisplay} expired ${timeExpired}ms ago.`,
+        message: `Payment instruction ${instrMessage} expired ${timeExpired}ms ago.`,
         redactedMessage: `Payment instruction ${instrRedacted} has expired.`,
         expiryTimestamp: entry.expiryTimestamp,
         timeUntilExpiry: -timeExpired,

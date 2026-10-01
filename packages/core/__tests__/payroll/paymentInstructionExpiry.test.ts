@@ -3,6 +3,7 @@ import {
   validatePaymentInstructionExpiryBatch,
   isPaymentInstructionValid,
   getTimeUntilPaymentInstructionExpiry,
+  validatePayrollAdjustmentApprovalExpiry,
 } from "../../src/payroll/paymentInstructionExpiry";
 
 describe("Payment Instruction Expiry Helper", () => {
@@ -176,6 +177,116 @@ describe("Payment Instruction Expiry Helper", () => {
     it("returns 0 for expired instruction", () => {
       const remaining = getTimeUntilPaymentInstructionExpiry(now - 5000, now);
       expect(remaining).toBe(0);
+    });
+  });
+
+  describe("validatePayrollAdjustmentApprovalExpiry", () => {
+    it("validates a non-expired approval", () => {
+      const result = validatePayrollAdjustmentApprovalExpiry(
+        {
+          adjustmentId: "ADJ001",
+          approvalExpiryTimestamp: now + 10000,
+        },
+        { currentTime: now }
+      );
+
+      expect(result.isValid).toBe(true);
+      expect(result.violation).toBeUndefined();
+      expect(result.timeUntilExpiry).toBe(10000);
+    });
+
+    it("rejects an expired approval", () => {
+      const result = validatePayrollAdjustmentApprovalExpiry(
+        {
+          adjustmentId: "ADJ001",
+          approvalExpiryTimestamp: now - 5000,
+        },
+        { currentTime: now }
+      );
+
+      expect(result.isValid).toBe(false);
+      expect(result.violation?.code).toBe("APPROVAL_EXPIRED");
+      expect(result.violation?.message).toContain("expired");
+    });
+
+    it("handles invalid approval expiry timestamps", () => {
+      const result = validatePayrollAdjustmentApprovalExpiry(
+        {
+          adjustmentId: "ADJ001",
+          approvalExpiryTimestamp: NaN,
+        },
+        { currentTime: now }
+      );
+
+      expect(result.isValid).toBe(false);
+      expect(result.violation?.code).toBe("INVALID_EXPIRY_TIMESTAMP");
+    });
+
+    it("rejects approval expiry in the past", () => {
+      const result = validatePayrollAdjustmentApprovalExpiry(
+        {
+          adjustmentId: "ADJ001",
+          approvalExpiryTimestamp: -1000,
+        },
+        { currentTime: now }
+      );
+
+      expect(result.isValid).toBe(false);
+      expect(result.violation?.code).toBe("EXPIRY_IN_PAST");
+    });
+
+    it("applies grace period correctly", () => {
+      const result = validatePayrollAdjustmentApprovalExpiry(
+        {
+          adjustmentId: "ADJ001",
+          approvalExpiryTimestamp: now - 5000,
+        },
+        { currentTime: now, gracePeriod: 10000 }
+      );
+
+      expect(result.isValid).toBe(true);
+      expect(result.timeUntilExpiry).toBe(5000);
+    });
+
+    it("redacts adjustment ID by default", () => {
+      const result = validatePayrollAdjustmentApprovalExpiry(
+        {
+          adjustmentId: "ADJ_SECRET_001",
+          approvalExpiryTimestamp: now - 5000,
+        },
+        { currentTime: now }
+      );
+
+      expect(result.violation?.redactedInstructionId).not.toContain(
+        "ADJ_SECRET_001"
+      );
+      expect(result.violation?.message).toContain("ADJ_SECRET_001");
+      expect(result.violation?.redactedMessage).not.toContain("ADJ_SECRET_001");
+    });
+
+    it("shows adjustment ID when redaction is disabled", () => {
+      const result = validatePayrollAdjustmentApprovalExpiry(
+        {
+          adjustmentId: "ADJ001",
+          approvalExpiryTimestamp: now - 5000,
+        },
+        { currentTime: now, redactInstructionId: false }
+      );
+
+      expect(result.violation?.message).toContain("ADJ001");
+      expect(result.violation?.redactedMessage).not.toContain("ADJ001");
+    });
+
+    it("handles missing adjustment ID", () => {
+      const result = validatePayrollAdjustmentApprovalExpiry(
+        {
+          approvalExpiryTimestamp: now + 5000,
+        },
+        { currentTime: now }
+      );
+
+      expect(result.isValid).toBe(true);
+      expect(result.violation).toBeUndefined();
     });
   });
 

@@ -88,6 +88,65 @@ optional `options.now` (epoch milliseconds):
 compilePayrollPolicy(input, { now: Date.parse("2026-09-15T12:00:00Z") });
 ```
 
+## Organization policy migration validation
+
+Stored organization policies may still use the legacy (schema **version 0**) shape
+that predates `CompiledPayrollPolicy` — deprecated field names and numeric
+monetary values. `validateOrganizationPolicyMigration` validates that such a
+policy can be migrated to the current schema **and** returns the compiled
+migrated policy, so an integration can preview a migration before committing it.
+
+```ts
+import { validateOrganizationPolicyMigration } from "@zk-payroll/core";
+
+// legacy (v0) organization policy, as persisted by an older integration
+const legacy = {
+  version: 0,
+  organizationId: "org_acme",
+  policyId: "default",
+  assetCode: "native",
+  assetIssuer: "",
+  settlement: { minDelay: 60, maxOpen: 3600 },
+  limits: { maxBatch: 500, maxTotal: 1_000_000, maxPerRecipient: 50_000 },
+  minReserve: 100_000,
+  audit: { required: true, retentionDays: 365, viewerRoles: ["compliance_reviewer"] },
+};
+
+const result = validateOrganizationPolicyMigration(legacy, { now: Date.now() });
+
+if (result.valid) {
+  await contract.setPolicy(result.migratedPolicy); // current-schema policy
+} else {
+  for (const e of result.errors) {
+    console.error(`${e.code} ${e.field}: ${e.message}`);
+  }
+}
+```
+
+Key behaviors:
+
+- **Legacy remap** — deprecated fields (`settlement.minDelay` →
+  `settlementWindow.minDelaySeconds`, `limits.maxTotal` →
+  `capacityLimits.maxTotalPayout`, `minReserve` →
+  `reserveRequirements.minReserveBalance`, etc.) are detected, remapped, and
+  surfaced as actionable deprecation `warnings` with a `suggestion` for each.
+- **Full re-validation** — the remapped policy is re-compiled through
+  `compilePayrollPolicy`, so every existing invariant (settlement ordering,
+  reserve vs. capacity, audit retention, asset identity, effective dates) is
+  enforced with a single source of truth. Failures come back as
+  `COMPILE_ERROR` entries carrying the underlying `policyCompileCode`.
+- **Pass-through** — an already-current policy (`schemaVersion === 1`) is
+  returned unchanged with no migration warnings.
+- **All problems collected** — structural, type, and coherence errors are
+  reported together rather than failing on the first one.
+
+Helpers: `migrateOrganizationPolicy` (migrating alias),
+`assertOrganizationPolicyMigration` (throwing variant, throws
+`OrganizationPolicyMigrationError`), `detectOrganizationPolicyMigrationIssues`
+(warnings without compiling), and `buildOrganizationPolicyMigrationPlan`
+(the v0→v1 field-mapping plan). Tests live in
+`tests/policy-organization-migration.test.ts`.
+
 ## Determinism & snapshot coverage
 
 The compiled payload remains safe to lock down with Jest snapshot tests
